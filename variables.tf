@@ -1,6 +1,7 @@
 variable "name" {
   description = "Name for the ressources"
   type        = string
+  default     = "logs-alerts"
 }
 
 variable "account_id" {
@@ -11,6 +12,7 @@ variable "account_id" {
 variable "region" {
   description = "AWS region (where to deploy everything)"
   type        = string
+  default     = "eu-central-1"
 }
 
 variable "slack_settings" {
@@ -19,7 +21,6 @@ variable "slack_settings" {
     slack_channel_id : string
     slack_workspace_id : string
   })
-  default = null
 }
 
 variable "lambda_code_path" {

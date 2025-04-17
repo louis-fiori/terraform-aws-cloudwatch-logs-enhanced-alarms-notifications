@@ -4,15 +4,14 @@ locals {
     DYNAMODB_TABLE = aws_dynamodb_table.logs_errors_table.name
     MAX            = 600
   }
+
   lambda_environment_variables = merge(local.default_environment_variables, var.lambda_environment_variables)
   lambda_code_path             = var.lambda_code_path == "logs_alerts.py" ? "${path.module}/lambda/logs_alerts.py" : var.lambda_code_path
 }
 
-#######################################
 # DynamoDB table (with DynamoDB Stream)
-#######################################
 resource "aws_dynamodb_table" "logs_errors_table" {
-  name             = "logs_errors_table"
+  name             = "alerts-table"
   hash_key         = "error_message_hash"
   billing_mode     = "PAY_PER_REQUEST"
   stream_enabled   = true
@@ -29,33 +28,54 @@ resource "aws_dynamodb_table" "logs_errors_table" {
   }
 }
 
-############
 # SNS Topic
-############
 resource "aws_sns_topic" "alerts_sns_topic" {
-  name = "${var.name}_sns_topic"
+  name = "${var.name}-sns-topic"
 }
 
-###########################
-# Slack integration module
-###########################
-module "slack_integration" {
-  source = "./modules/slack_integration"
-
-  count = length(var.slack_settings) > 0 ? 1 : 0
-
-  name       = var.name
-  account_id = var.account_id
-  region     = var.region
-
-  sns_topic_arn = aws_sns_topic.alerts_sns_topic.arn
-
-  slack_settings = var.slack_settings
+# AWS Chatbot Slack Configuration IAM Role and Policies
+data "aws_iam_policy_document" "assume_role_chatbot" {
+  statement {
+    actions = ["sts:AssumeRole"]
+    principals {
+      type        = "Service"
+      identifiers = ["chatbot.amazonaws.com"]
+    }
+  }
 }
 
-###################################
+resource "aws_iam_role" "chatbot_slack_role" {
+  name_prefix        = "${var.name}-chatbot-slack-role-"
+  assume_role_policy = data.aws_iam_policy_document.assume_role_chatbot.json
+}
+
+data "aws_iam_policy_document" "chatbot_slack_policy" {
+  statement {
+    actions = [
+      "cloudwatch:Describe*",
+      "cloudwatch:Get*",
+      "cloudwatch:List*",
+    ]
+    resources = ["arn:aws:cloudwatch:${var.region}:${var.account_id}:*"]
+  }
+}
+
+resource "aws_iam_role_policy" "chatbot_slack_role_policy" {
+  name   = "${var.name}_chatbot_slack_role_policy"
+  role   = aws_iam_role.chatbot_slack_role.id
+  policy = data.aws_iam_policy_document.chatbot_slack_policy.json
+}
+
+# AWS Chatbot Slack Configuration
+resource "awscc_chatbot_slack_channel_configuration" "slack_alerts" {
+  configuration_name = "${var.name}-chatbot-slack-alerts"
+  iam_role_arn       = aws_iam_role.chatbot_slack_role.arn
+  slack_channel_id   = var.slack_settings.slack_channel_id
+  slack_workspace_id = var.slack_settings.slack_workspace_id
+  sns_topic_arns     = [aws_sns_topic.alerts_sns_topic.arn]
+}
+
 # Lambda function Roles & Policies
-###################################
 data "aws_iam_policy_document" "assume_role_lambda" {
   statement {
     actions = ["sts:AssumeRole"]
@@ -67,7 +87,7 @@ data "aws_iam_policy_document" "assume_role_lambda" {
 }
 
 resource "aws_iam_role" "lambda_role" {
-  name_prefix         = "${var.name}_role"
+  name_prefix         = "${var.name}-role-"
   assume_role_policy  = data.aws_iam_policy_document.assume_role_lambda.json
   managed_policy_arns = var.vpc_subnet_ids != null && var.vpc_security_group_ids != null ? ["arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"] : null
 }
@@ -96,9 +116,7 @@ data "aws_iam_policy_document" "lambda_policy" {
   }
 
   statement {
-    actions = [
-      "sns:Publish",
-    ]
+    actions   = ["sns:Publish"]
     resources = [aws_sns_topic.alerts_sns_topic.arn]
   }
 }
@@ -109,9 +127,7 @@ resource "aws_iam_role_policy" "lambda_policy" {
   policy      = data.aws_iam_policy_document.lambda_policy.json
 }
 
-##################
 # Lambda function
-##################
 data "archive_file" "lambda_zip" {
   type        = "zip"
   source_file = local.lambda_code_path
