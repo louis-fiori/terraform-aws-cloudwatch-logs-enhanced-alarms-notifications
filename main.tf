@@ -11,7 +11,7 @@ locals {
 
 # DynamoDB table (with DynamoDB Stream)
 resource "aws_dynamodb_table" "logs_errors_table" {
-  name             = "alerts-table"
+  name             = "${var.name}-table"
   hash_key         = "error_message_hash"
   billing_mode     = "PAY_PER_REQUEST"
   stream_enabled   = true
@@ -87,9 +87,14 @@ data "aws_iam_policy_document" "assume_role_lambda" {
 }
 
 resource "aws_iam_role" "lambda_role" {
-  name_prefix         = "${var.name}-role-"
-  assume_role_policy  = data.aws_iam_policy_document.assume_role_lambda.json
-  managed_policy_arns = var.vpc_subnet_ids != null && var.vpc_security_group_ids != null ? ["arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"] : null
+  name_prefix        = "${var.name}-role-"
+  assume_role_policy = data.aws_iam_policy_document.assume_role_lambda.json
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_vpc_access" {
+  count      = var.vpc_subnet_ids != null && var.vpc_security_group_ids != null ? 1 : 0
+  role       = aws_iam_role.lambda_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
 }
 
 data "aws_iam_policy_document" "lambda_policy" {
@@ -140,7 +145,7 @@ resource "aws_lambda_function" "lambda" {
   role             = aws_iam_role.lambda_role.arn
   filename         = data.archive_file.lambda_zip.output_path
   source_code_hash = data.archive_file.lambda_zip.output_base64sha256
-  timeout          = 10
+  timeout          = var.lambda_timeout
 
   runtime = var.lambda_runtime
   handler = var.lambda_handler

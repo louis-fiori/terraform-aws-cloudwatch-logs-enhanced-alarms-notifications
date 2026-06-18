@@ -1,2 +1,5 @@
 .terraform
 .terraform.lock.hcl
+__pycache__/
+*.pyc
+lambda/build.zip

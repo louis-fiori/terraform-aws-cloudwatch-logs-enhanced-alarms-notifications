@@ -32,7 +32,13 @@ variable "lambda_code_path" {
 variable "lambda_runtime" {
   description = "Runtime for the Lambda"
   type        = string
-  default     = "python3.8"
+  default     = "python3.12"
+}
+
+variable "lambda_timeout" {
+  description = "Timeout (in seconds) for the Lambda function"
+  type        = number
+  default     = 10
 }
 
 variable "lambda_handler" {
